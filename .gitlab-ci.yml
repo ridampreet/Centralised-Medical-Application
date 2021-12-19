@@ -1,0 +1,58 @@
+variables:
+  APP_NAME: "Medi_App"
+
+stages:
+  - build
+  - test
+  - deploy
+
+buildStep:
+  image: maven:3.6-adoptopenjdk-14
+  stage: build
+  tags:
+    - dalfcs_docker_kvm
+  script:
+    - mvn clean compile
+  only:
+    - develop
+    - release
+
+testStep:
+  image: maven:3.6-adoptopenjdk-14
+  stage: test
+  tags:
+    - dalfcs_docker_kvm
+  artifacts:
+    when: always
+    reports:
+      junit:
+        - target/surefire-reports/TEST-*.xml
+  script:
+    mvn verify
+  only:
+    - develop
+    - release
+
+deployStep:
+  image: maven:3.6-adoptopenjdk-14
+  stage: deploy
+  tags:
+    - dalfcs_docker_kvm
+  before_script:
+    - 'command -v ssh-agent >/dev/null || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - echo "$DEPLOY_SSH_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+    - mvn clean compile
+    - mvn resources:copy-resources
+    - mvn install assembly:single
+  artifacts:
+    paths:
+      - target/centrailized_medi_application-1.0-SNAPSHOT-jar-with-dependencies.jar
+  script:
+    - scp -r -o StrictHostKeyChecking=no target/centrailized_medi_application-1.0-SNAPSHOT-jar-with-dependencies.jar "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_DIR}/${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHORT_SHA}_${APP_NAME}.jar"
+  only:
+    - release
